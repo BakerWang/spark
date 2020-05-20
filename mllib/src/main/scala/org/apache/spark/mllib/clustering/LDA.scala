@@ -17,9 +17,11 @@
 
 package org.apache.spark.mllib.clustering
 
+import java.util.Locale
+
 import breeze.linalg.{DenseVector => BDV}
 
-import org.apache.spark.annotation.{DeveloperApi, Since}
+import org.apache.spark.annotation.Since
 import org.apache.spark.api.java.JavaPairRDD
 import org.apache.spark.graphx._
 import org.apache.spark.internal.Logging
@@ -279,21 +281,15 @@ class LDA private (
 
 
   /**
-   * :: DeveloperApi ::
-   *
    * LDAOptimizer used to perform the actual calculation
    */
   @Since("1.4.0")
-  @DeveloperApi
   def getOptimizer: LDAOptimizer = ldaOptimizer
 
   /**
-   * :: DeveloperApi ::
-   *
    * LDAOptimizer used to perform the actual calculation (default = EMLDAOptimizer)
    */
   @Since("1.4.0")
-  @DeveloperApi
   def setOptimizer(optimizer: LDAOptimizer): this.type = {
     this.ldaOptimizer = optimizer
     this
@@ -306,7 +302,7 @@ class LDA private (
   @Since("1.4.0")
   def setOptimizer(optimizerName: String): this.type = {
     this.ldaOptimizer =
-      optimizerName.toLowerCase match {
+      optimizerName.toLowerCase(Locale.ROOT) match {
         case "em" => new EMLDAOptimizer
         case "online" => new OnlineLDAOptimizer
         case other =>
@@ -328,7 +324,7 @@ class LDA private (
   def run(documents: RDD[(Long, Vector)]): LDAModel = {
     val state = ldaOptimizer.initialize(documents, this)
     var iter = 0
-    val iterationTimes = Array.fill[Double](maxIterations)(0)
+    val iterationTimes = Array.ofDim[Double](maxIterations)
     while (iter < maxIterations) {
       val start = System.nanoTime()
       state.next()

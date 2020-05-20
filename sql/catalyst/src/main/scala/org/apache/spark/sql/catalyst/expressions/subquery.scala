@@ -47,7 +47,6 @@ abstract class SubqueryExpression(
     plan: LogicalPlan,
     children: Seq[Expression],
     exprId: ExprId) extends PlanExpression[LogicalPlan] {
-
   override lazy val resolved: Boolean = childrenResolved && plan.resolved
   override lazy val references: AttributeSet =
     if (plan.resolved) super.references -- plan.outputSet else super.references
@@ -63,11 +62,13 @@ abstract class SubqueryExpression(
 
 object SubqueryExpression {
   /**
-   * Returns true when an expression contains an IN or EXISTS subquery and false otherwise.
+   * Returns true when an expression contains an IN or correlated EXISTS subquery
+   * and false otherwise.
    */
-  def hasInOrExistsSubquery(e: Expression): Boolean = {
+  def hasInOrCorrelatedExistsSubquery(e: Expression): Boolean = {
     e.find {
-      case _: ListQuery | _: Exists => true
+      case _: ListQuery => true
+      case _: Exists if e.children.nonEmpty => true
       case _ => false
     }.isDefined
   }
@@ -83,6 +84,16 @@ object SubqueryExpression {
       case _ => false
     }.isDefined
   }
+
+  /**
+   * Returns true when an expression contains a subquery
+   */
+  def hasSubquery(e: Expression): Boolean = {
+    e.find {
+      case _: SubqueryExpression => true
+      case _ => false
+    }.isDefined
+  }
 }
 
 object SubExprUtils extends PredicateHelper {
@@ -92,24 +103,6 @@ object SubExprUtils extends PredicateHelper {
    */
   def containsOuter(e: Expression): Boolean = {
     e.find(_.isInstanceOf[OuterReference]).isDefined
-  }
-
-  /**
-   * Returns whether there are any null-aware predicate subqueries inside Not. If not, we could
-   * turn the null-aware predicate into not-null-aware predicate.
-   */
-  def hasNullAwarePredicateWithinNot(condition: Expression): Boolean = {
-    splitConjunctivePredicates(condition).exists {
-      case _: Exists | Not(_: Exists) => false
-      case In(_, Seq(_: ListQuery)) | Not(In(_, Seq(_: ListQuery))) => false
-      case e => e.find { x =>
-        x.isInstanceOf[Not] && e.find {
-          case In(_, Seq(_: ListQuery)) => true
-          case _ => false
-        }.isDefined
-      }.isDefined
-    }
-
   }
 
   /**
@@ -232,10 +225,19 @@ case class ScalarSubquery(
     children: Seq[Expression] = Seq.empty,
     exprId: ExprId = NamedExpression.newExprId)
   extends SubqueryExpression(plan, children, exprId) with Unevaluable {
-  override def dataType: DataType = plan.schema.fields.head.dataType
+  override def dataType: DataType = {
+    assert(plan.schema.fields.nonEmpty, "Scalar subquery should have only one column")
+    plan.schema.fields.head.dataType
+  }
   override def nullable: Boolean = true
   override def withNewPlan(plan: LogicalPlan): ScalarSubquery = copy(plan = plan)
   override def toString: String = s"scalar-subquery#${exprId.id} $conditionString"
+  override lazy val canonicalized: Expression = {
+    ScalarSubquery(
+      plan.canonicalized,
+      children.map(_.canonicalized),
+      ExprId(0))
+  }
 }
 
 object ScalarSubquery {
@@ -262,16 +264,32 @@ object ScalarSubquery {
 case class ListQuery(
     plan: LogicalPlan,
     children: Seq[Expression] = Seq.empty,
-    exprId: ExprId = NamedExpression.newExprId)
+    exprId: ExprId = NamedExpression.newExprId,
+    childOutputs: Seq[Attribute] = Seq.empty)
   extends SubqueryExpression(plan, children, exprId) with Unevaluable {
-  override def dataType: DataType = plan.schema.fields.head.dataType
+  override def dataType: DataType = if (childOutputs.length > 1) {
+    childOutputs.toStructType
+  } else {
+    childOutputs.head.dataType
+  }
+  override lazy val resolved: Boolean = childrenResolved && plan.resolved && childOutputs.nonEmpty
   override def nullable: Boolean = false
   override def withNewPlan(plan: LogicalPlan): ListQuery = copy(plan = plan)
   override def toString: String = s"list#${exprId.id} $conditionString"
+  override lazy val canonicalized: Expression = {
+    ListQuery(
+      plan.canonicalized,
+      children.map(_.canonicalized),
+      ExprId(0),
+      childOutputs.map(_.canonicalized.asInstanceOf[Attribute]))
+  }
 }
 
 /**
- * The [[Exists]] expression checks if a row exists in a subquery given some correlated condition.
+ * The [[Exists]] expression checks if a row exists in a subquery given some correlated condition
+ * or some uncorrelated condition.
+ *
+ * 1. correlated condition:
  *
  * For example (SQL):
  * {{{
@@ -280,6 +298,17 @@ case class ListQuery(
  *   WHERE   EXISTS (SELECT  *
  *                   FROM    b
  *                   WHERE   b.id = a.id)
+ * }}}
+ *
+ * 2. uncorrelated condition example:
+ *
+ * For example (SQL):
+ * {{{
+ *   SELECT  *
+ *   FROM    a
+ *   WHERE   EXISTS (SELECT  *
+ *                   FROM    b
+ *                   WHERE   b.id > 10)
  * }}}
  */
 case class Exists(
@@ -290,4 +319,10 @@ case class Exists(
   override def nullable: Boolean = false
   override def withNewPlan(plan: LogicalPlan): Exists = copy(plan = plan)
   override def toString: String = s"exists#${exprId.id} $conditionString"
+  override lazy val canonicalized: Expression = {
+    Exists(
+      plan.canonicalized,
+      children.map(_.canonicalized),
+      ExprId(0))
+  }
 }

@@ -19,7 +19,7 @@ package org.apache.spark.ml.stat
 
 import scala.collection.JavaConverters._
 
-import org.apache.spark.annotation.{Experimental, Since}
+import org.apache.spark.annotation.Since
 import org.apache.spark.ml.linalg.{SQLDataTypes, Vector}
 import org.apache.spark.mllib.linalg.{Vectors => OldVectors}
 import org.apache.spark.mllib.stat.{Statistics => OldStatistics}
@@ -27,18 +27,16 @@ import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.sql.types.{StructField, StructType}
 
 /**
- * API for correlation functions in MLlib, compatible with Dataframes and Datasets.
+ * API for correlation functions in MLlib, compatible with DataFrames and Datasets.
  *
  * The functions in this package generalize the functions in [[org.apache.spark.sql.Dataset#stat]]
  * to spark.ml's Vector types.
  */
 @Since("2.2.0")
-@Experimental
 object Correlation {
 
   /**
-   * :: Experimental ::
-   * Compute the correlation matrix for the input RDD of Vectors using the specified method.
+   * Compute the correlation matrix for the input Dataset of Vectors using the specified method.
    * Methods currently supported: `pearson` (default), `spearman`.
    *
    * @param dataset A dataset or a dataframe
@@ -49,21 +47,21 @@ object Correlation {
    *               Supported: `pearson` (default), `spearman`
    * @return A dataframe that contains the correlation matrix of the column of vectors. This
    *         dataframe contains a single row and a single column of name
-   *         '$METHODNAME($COLUMN)'.
+   *         `$METHODNAME($COLUMN)`.
    * @throws IllegalArgumentException if the column is not a valid column in the dataset, or if
    *                                  the content of this column is not of type Vector.
    *
    *  Here is how to access the correlation coefficient:
    *  {{{
    *    val data: Dataset[Vector] = ...
-   *    val Row(coeff: Matrix) = Statistics.corr(data, "value").head
+   *    val Row(coeff: Matrix) = Correlation.corr(data, "value").head
    *    // coeff now contains the Pearson correlation matrix.
    *  }}}
    *
    * @note For Spearman, a rank correlation, we need to create an RDD[Double] for each column
    * and sort it in order to retrieve the ranks and then join the columns back into an RDD[Vector],
-   * which is fairly costly. Cache the input RDD before calling corr with `method = "spearman"` to
-   * avoid recomputing the common lineage.
+   * which is fairly costly. Cache the input Dataset before calling corr with `method = "spearman"`
+   * to avoid recomputing the common lineage.
    */
   @Since("2.2.0")
   def corr(dataset: Dataset[_], column: String, method: String): DataFrame = {

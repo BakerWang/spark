@@ -143,7 +143,7 @@ execute_command() {
       # Check if the process has died; in that case we'll tail the log so the user can see
       if [[ ! $(ps -p "$newpid" -o comm=) =~ "java" ]]; then
         echo "failed to launch: $@"
-        tail -2 "$log" | sed 's/^/  /'
+        tail -10 "$log" | sed 's/^/  /'
         echo "full log in $log"
       fi
   else
@@ -212,6 +212,21 @@ case $option in
       fi
     else
       echo "no $command to stop"
+    fi
+    ;;
+
+  (decommission)
+
+    if [ -f $pid ]; then
+      TARGET_ID="$(cat "$pid")"
+      if [[ $(ps -p "$TARGET_ID" -o comm=) =~ "java" ]]; then
+        echo "decommissioning $command"
+        kill -s SIGPWR "$TARGET_ID"
+      else
+        echo "no $command to decommission"
+      fi
+    else
+      echo "no $command to decommission"
     fi
     ;;
 
